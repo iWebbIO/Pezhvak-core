@@ -1,0 +1,102 @@
+name: Build and Release Pezhvak Core
+
+on:
+  push:
+    tags:
+      - 'v*' # Triggers the workflow on version tags (e.g., v1.0.0)
+
+permissions:
+  contents: write
+
+jobs:
+  build-desktop:
+    name: Build Desktop Libraries & Binaries
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            ext: so
+            bin: ""
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            ext: dll
+            bin: ".exe"
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            ext: dylib
+            bin: ""
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Build C-Shared Library (For Desktop GUIs)
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: go build -buildmode=c-shared -o pezhvak-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }} ./cmd/pezhvak
+
+      - name: Build Standalone Daemon/CLI Executable
+        env:
+          CGO_ENABLED: 1
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+        run: go build -o pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }} ./cmd/pezhvak
+
+      - name: Upload Desktop Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            pezhvak-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
+            pezhvak-${{ matrix.os }}-${{ matrix.arch }}.h
+            pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }}
+
+  build-mobile:
+    name: Build Mobile Frameworks (gomobile)
+    runs-on: macos-latest # macOS runners can build both iOS XCFrameworks and Android AARs
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: Set up JDK 17 (Required for Android)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install gomobile
+        run: |
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          gomobile init
+
+      - name: Build Android AAR
+        run: gomobile bind -target=android -o pezhvak.aar ./cmd/pezhvak
+
+      - name: Build iOS XCFramework
+        run: gomobile bind -target=ios -o pezhvak.xcframework ./cmd/pezhvak
+
+      - name: Archive iOS Framework
+        run: zip -r pezhvak-ios.zip pezhvak.xcframework
+
+      - name: Upload Mobile Release Assets
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            pezhvak.aar
+            pezhvak-ios.zip
