@@ -1,0 +1,17 @@
+syntax = "proto3";
+package pezhvak;
+option go_package = "pezhvak/internal/pb";
+
+message BLEPacket {
+  string message_id = 1;
+  uint32 chunk_index = 2;
+  uint32 total_chunks = 3;
+  bytes payload_chunk = 4;
+}
+
+message PezhvakMessage {
+  string sender_id = 1;
+  string recipient_id = 2;
+  int64 timestamp = 3;
+  bytes encrypted_data = 4;
+}
