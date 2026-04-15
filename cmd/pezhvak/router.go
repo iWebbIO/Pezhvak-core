@@ -11,6 +11,7 @@ import (
 type Router struct {
 	mu               sync.Mutex
 	pendingAssembler map[string]*messageAssembler
+	onMessage        func(peerID string, fullPayload []byte)
 }
 
 type messageAssembler struct {
@@ -18,9 +19,10 @@ type messageAssembler struct {
 	totalChunks uint32
 }
 
-func NewRouter() *Router {
+func NewRouter(onMessage func(peerID string, fullPayload []byte)) *Router {
 	return &Router{
 		pendingAssembler: make(map[string]*messageAssembler),
+		onMessage:        onMessage,
 	}
 }
 
@@ -50,7 +52,9 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 			fullPayload = append(fullPayload, assembler.chunks[i]...)
 		}
 		delete(r.pendingAssembler, packet.MessageId)
-		// TODO: Pass the fullPayload to cryptographic validation/routing logic here
+		if r.onMessage != nil {
+			r.onMessage(peerID, fullPayload)
+		}
 	}
 
 	return nil

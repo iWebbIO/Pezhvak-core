@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"math"
 
 	"pezhvak/internal/pb"
@@ -18,11 +19,16 @@ type PezhvakCore struct {
 }
 
 func NewPezhvakCore(platform NativePlatform, db store.MessageStore) *PezhvakCore {
-	return &PezhvakCore{
+	c := &PezhvakCore{
 		platform: platform,
 		store:    db,
-		router:   NewRouter(),
 	}
+
+	c.router = NewRouter(func(peerID string, fullPayload []byte) {
+		fmt.Printf("Successfully reassembled message from %s (%d bytes)\n", peerID, len(fullPayload))
+		// TODO: Deserialize the pb.PezhvakMessage and decrypt it
+	})
+	return c
 }
 
 func (c *PezhvakCore) ReceiveFromBLE(peerID string, rawPacket []byte) error {
