@@ -45,14 +45,14 @@ jobs:
           CGO_ENABLED: 1
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-        run: go build -buildmode=c-shared -o pezhvak-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }} ./cmd/pezhvak
+        run: go build -buildmode=c-shared -o pezhvak-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }} ./cmd/pezhvak-cli
 
       - name: Build Standalone Daemon/CLI Executable
         env:
           CGO_ENABLED: 1
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
-        run: go build -o pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }} ./cmd/pezhvak
+        run: go build -o pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }} ./cmd/pezhvak-cli
 
       - name: Upload Desktop Release Assets
         uses: softprops/action-gh-release@v1

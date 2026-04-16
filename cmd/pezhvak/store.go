@@ -1,4 +1,4 @@
-package store
+package core
 
 // MessageStore defines the interface for store-and-forward persistence.
 type MessageStore interface {

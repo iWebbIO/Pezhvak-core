@@ -5,7 +5,6 @@ import (
 	"math"
 
 	"pezhvak/internal/pb"
-	"pezhvak/internal/store"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -14,11 +13,11 @@ const BLE_SAFE_PAYLOAD = 200
 // PezhvakCore is the main struct exported to gomobile.
 type PezhvakCore struct {
 	platform NativePlatform
-	store    store.MessageStore
+	store    MessageStore
 	router   *Router
 }
 
-func NewPezhvakCore(platform NativePlatform, db store.MessageStore) *PezhvakCore {
+func NewPezhvakCore(platform NativePlatform, db MessageStore) *PezhvakCore {
 	c := &PezhvakCore{
 		platform: platform,
 		store:    db,
