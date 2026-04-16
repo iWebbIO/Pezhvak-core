@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"sync"
 	"time"
 
@@ -39,6 +40,10 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 	var packet pb.BLEPacket
 	if err := proto.Unmarshal(rawPacket, &packet); err != nil {
 		return err
+	}
+
+	if packet.TotalChunks == 0 || packet.ChunkIndex >= packet.TotalChunks {
+		return errors.New("invalid chunk index or total chunks")
 	}
 
 	r.mu.Lock()

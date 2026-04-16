@@ -130,7 +130,9 @@ func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex str
 	}
 
 	randBytes := make([]byte, 4)
-	_, _ = rand.Read(randBytes)
+	if _, err := rand.Read(randBytes); err != nil {
+		return err
+	}
 	msgID := fmt.Sprintf("%d-%s-%x", msg.Timestamp, msg.SenderId[:8], randBytes)
 	return c.FragmentAndSend(peerID, msgID, wireBytes)
 }
