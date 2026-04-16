@@ -31,29 +31,32 @@ func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error 
 	})
 }
 
-func (s *BadgerStore) GetPending(peerID string, onMessage func(msgID string, data []byte)) error {
+func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 	prefix := []byte(fmt.Sprintf("pending:%s:", peerID))
+	pending := make(map[string][]byte)
 
-	return s.db.View(func(txn *badger.Txn) error {
+	err := s.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
 			key := item.Key()
+			// The key is only valid for the transaction, so we must copy it.
 			msgID := string(key[len(prefix):])
-			err := item.Value(func(v []byte) error {
+			if err := item.Value(func(v []byte) error {
+				// The value is only valid for the transaction, so we must copy it.
 				valCopy := make([]byte, len(v))
 				copy(valCopy, v)
-				onMessage(msgID, valCopy)
+				pending[msgID] = valCopy
 				return nil
-			})
-			if err != nil {
+			}); err != nil {
 				return err
 			}
 		}
 		return nil
 	})
+	return pending, err
 }
 
 func (s *BadgerStore) DeletePending(peerID, messageID string) error {

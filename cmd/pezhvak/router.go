@@ -21,11 +21,18 @@ type messageAssembler struct {
 	lastUpdated time.Time
 }
 
+const (
+	assemblerTTL      = 60 * time.Second
+	cleanupInterval = 5 * time.Minute
+)
+
 func NewRouter(onMessage func(peerID string, fullPayload []byte)) *Router {
-	return &Router{
+	r := &Router{
 		pendingAssembler: make(map[string]*messageAssembler),
 		onMessage:        onMessage,
 	}
+	go r.cleanupStaleAssemblers()
+	return r
 }
 
 func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
@@ -36,14 +43,6 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 
 	r.mu.Lock()
 
-	// MVP Cleanup: Evict incomplete messages older than 60 seconds
-	now := time.Now()
-	for id, asm := range r.pendingAssembler {
-		if now.Sub(asm.lastUpdated) > time.Minute {
-			delete(r.pendingAssembler, id)
-		}
-	}
-
 	assembler, exists := r.pendingAssembler[packet.MessageId]
 	if !exists {
 		assembler = &messageAssembler{
@@ -53,7 +52,7 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 		r.pendingAssembler[packet.MessageId] = assembler
 	}
 
-	assembler.lastUpdated = now
+	assembler.lastUpdated = time.Now()
 	assembler.chunks[packet.ChunkIndex] = packet.PayloadChunk
 
 	var completePayload []byte
@@ -71,4 +70,19 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 	}
 
 	return nil
+}
+
+func (r *Router) cleanupStaleAssemblers() {
+	ticker := time.NewTicker(cleanupInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		r.mu.Lock()
+		for id, asm := range r.pendingAssembler {
+			if time.Since(asm.lastUpdated) > assemblerTTL {
+				delete(r.pendingAssembler, id)
+			}
+		}
+		r.mu.Unlock()
+	}
 }

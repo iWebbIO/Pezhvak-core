@@ -145,7 +145,11 @@ func (c *PezhvakCore) SyncPendingMessages(peerID string) error {
 
 	for msgID, payload := range pending {
 		if err := c.FragmentAndSend(peerID, msgID, payload); err == nil {
-			_ = c.store.DeletePending(peerID, msgID)
+			if delErr := c.store.DeletePending(peerID, msgID); delErr != nil {
+				// This is non-fatal. The message will be re-sent on the next sync.
+				// In a production system, this should be logged.
+				fmt.Printf("Warning: failed to delete pending message %s for peer %s: %v\n", msgID, peerID, delErr)
+			}
 		}
 	}
 	return nil
