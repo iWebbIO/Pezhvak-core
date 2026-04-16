@@ -11,9 +11,11 @@ type BadgerStore struct {
 }
 
 func NewBadgerStore(path string) (*BadgerStore, error) {
-	opts := badger.DefaultOptions(path)
-	// Optimize for mobile platforms (uses less RAM by shrinking memtables)
-	opts.WithMemTableSize(16 << 20)
+	opts := badger.DefaultOptions(path).
+		WithMemTableSize(16 << 20). // Optimize for mobile RAM
+		WithCompactL0OnClose(true).
+		WithLogger(nil).            // Prevent massive logcat spam on Android
+		WithBypassLockGuard(true)   // Helps prevent file-lock crashes in strict iOS/Android sandboxes
 
 	db, err := badger.Open(opts)
 	if err != nil {

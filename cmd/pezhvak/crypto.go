@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"io"
 
@@ -11,6 +12,15 @@ import (
 // GenerateIdentity creates a new public/private keypair for a peer.
 func GenerateIdentity() (publicKey, privateKey *[32]byte, err error) {
 	return box.GenerateKey(rand.Reader)
+}
+
+// GenerateIdentityHex creates a keypair and returns them as hex strings (Gomobile compatible).
+func GenerateIdentityHex() (string, string, error) {
+	pub, priv, err := GenerateIdentity()
+	if err != nil {
+		return "", "", err
+	}
+	return hex.EncodeToString(pub[:]), hex.EncodeToString(priv[:]), nil
 }
 
 // EncryptPayload encrypts a message using Curve25519, XSalsa20, and Poly1305.
