@@ -1,8 +1,11 @@
 package core
 
 import (
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"math"
+	"time"
 
 	"pezhvak/internal/pb"
 	"google.golang.org/protobuf/proto"
@@ -15,19 +18,47 @@ type PezhvakCore struct {
 	platform NativePlatform
 	store    MessageStore
 	router   *Router
+	privKey  *[32]byte
+	pubKey   *[32]byte
 }
 
-func NewPezhvakCore(platform NativePlatform, db MessageStore) *PezhvakCore {
+func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, publicKeyHex string) (*PezhvakCore, error) {
+	privBytes, err1 := hex.DecodeString(privateKeyHex)
+	pubBytes, err2 := hex.DecodeString(publicKeyHex)
+	if err1 != nil || err2 != nil || len(privBytes) != 32 || len(pubBytes) != 32 {
+		return nil, errors.New("invalid key format")
+	}
+
 	c := &PezhvakCore{
 		platform: platform,
 		store:    db,
+		privKey:  new([32]byte),
+		pubKey:   new([32]byte),
 	}
+	copy(c.privKey[:], privBytes)
+	copy(c.pubKey[:], pubBytes)
 
 	c.router = NewRouter(func(peerID string, fullPayload []byte) {
-		fmt.Printf("Successfully reassembled message from %s (%d bytes)\n", peerID, len(fullPayload))
-		// TODO: Deserialize the pb.PezhvakMessage and decrypt it
+		var msg pb.PezhvakMessage
+		if err := proto.Unmarshal(fullPayload, &msg); err != nil {
+			fmt.Println("Failed to unmarshal PezhvakMessage:", err)
+			return
+		}
+
+		senderPubBytes, err := hex.DecodeString(msg.SenderId)
+		if err != nil || len(senderPubBytes) != 32 {
+			return // Invalid sender ID
+		}
+
+		var senderPub [32]byte
+		copy(senderPub[:], senderPubBytes)
+
+		plaintext, err := DecryptPayload(c.privKey, &senderPub, msg.EncryptedData)
+		if err == nil {
+			c.platform.OnMessageReceived(msg.SenderId, plaintext)
+		}
 	})
-	return c
+	return c, nil
 }
 
 func (c *PezhvakCore) ReceiveFromBLE(peerID string, rawPacket []byte) error {
@@ -66,4 +97,35 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 		}
 	}
 	return nil
+}
+
+// SendPlaintextMessage is called by the native Android/iOS UI to send a message to a peer.
+func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex string, plaintext []byte) error {
+	recipientPubBytes, err := hex.DecodeString(recipientPubKeyHex)
+	if err != nil || len(recipientPubBytes) != 32 {
+		return errors.New("invalid recipient public key")
+	}
+
+	var recipientPub [32]byte
+	copy(recipientPub[:], recipientPubBytes)
+
+	encrypted, err := EncryptPayload(c.privKey, &recipientPub, plaintext)
+	if err != nil {
+		return err
+	}
+
+	msg := &pb.PezhvakMessage{
+		SenderId:      hex.EncodeToString(c.pubKey[:]),
+		RecipientId:   recipientPubKeyHex,
+		Timestamp:     time.Now().Unix(),
+		EncryptedData: encrypted,
+	}
+
+	wireBytes, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	msgID := fmt.Sprintf("%d-%s", msg.Timestamp, msg.SenderId[:8])
+	return c.FragmentAndSend(peerID, msgID, wireBytes)
 }
