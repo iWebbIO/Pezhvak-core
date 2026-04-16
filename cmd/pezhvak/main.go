@@ -80,11 +80,17 @@ func main() {
 	fmt.Println("Pezhvak Core Daemon starting...")
 	dataDir := "./pezhvak-data"
 
+	// Ensure the data directory exists before opening Badger or writing config
+	if err := os.MkdirAll(dataDir, 0755); err != nil {
+		log.Fatalf("Failed to create data directory: %v", err)
+	}
+
 	// 1. Initialize the offline storage
 	db, err := core.NewBadgerStore(dataDir)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
+	defer db.Close()
 
 	// 2. Load or generate node identity
 	cfg, err := loadOrInitConfig(filepath.Join(dataDir, "identity.json"))

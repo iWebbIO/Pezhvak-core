@@ -63,3 +63,7 @@ func (s *BadgerStore) DeletePending(peerID, messageID string) error {
 		return txn.Delete(key)
 	})
 }
+
+func (s *BadgerStore) Close() error {
+	return s.db.Close()
+}
