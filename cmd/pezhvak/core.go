@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"math"
 	"time"
 
 	"pezhvak/internal/pb"
@@ -71,7 +70,10 @@ func (c *PezhvakCore) ReceiveFromBLE(peerID string, rawPacket []byte) error {
 
 func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPayload []byte) error {
 	totalLength := len(fullPayload)
-	totalChunks := uint32(math.Ceil(float64(totalLength) / float64(BLE_SAFE_PAYLOAD)))
+	if totalLength == 0 {
+		return nil
+	}
+	totalChunks := uint32((totalLength + BLE_SAFE_PAYLOAD - 1) / BLE_SAFE_PAYLOAD)
 
 	for i := uint32(0); i < totalChunks; i++ {
 		start := i * BLE_SAFE_PAYLOAD

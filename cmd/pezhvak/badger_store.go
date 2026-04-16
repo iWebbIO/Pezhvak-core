@@ -31,11 +31,10 @@ func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error 
 	})
 }
 
-func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
-	messages := make(map[string][]byte)
+func (s *BadgerStore) GetPending(peerID string, onMessage func(msgID string, data []byte)) error {
 	prefix := []byte(fmt.Sprintf("pending:%s:", peerID))
 
-	err := s.db.View(func(txn *badger.Txn) error {
+	return s.db.View(func(txn *badger.Txn) error {
 		it := txn.NewIterator(badger.DefaultIteratorOptions)
 		defer it.Close()
 
@@ -46,7 +45,7 @@ func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 			err := item.Value(func(v []byte) error {
 				valCopy := make([]byte, len(v))
 				copy(valCopy, v)
-				messages[msgID] = valCopy
+				onMessage(msgID, valCopy)
 				return nil
 			})
 			if err != nil {
@@ -55,8 +54,6 @@ func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 		}
 		return nil
 	})
-
-	return messages, err
 }
 
 func (s *BadgerStore) DeletePending(peerID, messageID string) error {
