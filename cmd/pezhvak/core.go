@@ -129,3 +129,19 @@ func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex str
 	msgID := fmt.Sprintf("%d-%s", msg.Timestamp, msg.SenderId[:8])
 	return c.FragmentAndSend(peerID, msgID, wireBytes)
 }
+
+// SyncPendingMessages should be called by the native UI when a peer (re)connects.
+// It retrieves all offline messages for the peer and attempts to send them.
+func (c *PezhvakCore) SyncPendingMessages(peerID string) error {
+	pending, err := c.store.GetPending(peerID)
+	if err != nil {
+		return err
+	}
+
+	for msgID, payload := range pending {
+		if err := c.FragmentAndSend(peerID, msgID, payload); err == nil {
+			_ = c.store.DeletePending(peerID, msgID)
+		}
+	}
+	return nil
+}

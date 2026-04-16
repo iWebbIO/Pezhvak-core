@@ -29,8 +29,8 @@ func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error 
 	})
 }
 
-func (s *BadgerStore) GetPending(peerID string) ([][]byte, error) {
-	var messages [][]byte
+func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
+	messages := make(map[string][]byte)
 	prefix := []byte(fmt.Sprintf("pending:%s:", peerID))
 
 	err := s.db.View(func(txn *badger.Txn) error {
@@ -39,10 +39,12 @@ func (s *BadgerStore) GetPending(peerID string) ([][]byte, error) {
 
 		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
 			item := it.Item()
+			key := item.Key()
+			msgID := string(key[len(prefix):])
 			err := item.Value(func(v []byte) error {
 				valCopy := make([]byte, len(v))
 				copy(valCopy, v)
-				messages = append(messages, valCopy)
+				messages[msgID] = valCopy
 				return nil
 			})
 			if err != nil {
