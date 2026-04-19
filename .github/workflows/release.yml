@@ -108,7 +108,7 @@ jobs:
           gomobile init
 
       - name: Build Android AAR
-        run: gomobile bind -target=android -o pezhvak.aar ./cmd/pezhvak
+        run: gomobile bind -target=android -androidapi 21 -o pezhvak.aar ./cmd/pezhvak
 
       - name: Build iOS XCFramework
         run: gomobile bind -target=ios -o pezhvak.xcframework ./cmd/pezhvak

@@ -41,7 +41,7 @@ go install golang.org/x/mobile/cmd/gobind@latest
 gomobile init
 
 # Build Android AAR
-gomobile bind -target=android -o pezhvak.aar ./cmd/pezhvak
+gomobile bind -target=android -androidapi 21 -o pezhvak.aar ./cmd/pezhvak
 
 # Build iOS XCFramework
 gomobile bind -target=ios -o pezhvak.xcframework ./cmd/pezhvak
