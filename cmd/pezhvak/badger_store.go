@@ -7,6 +7,9 @@ import (
 	"github.com/dgraph-io/badger/v4"
 )
 
+// DefaultMessageTTL defines how long messages and sync records persist in the mesh (72h).
+const DefaultMessageTTL = 72 * time.Hour
+
 type BadgerStore struct {
 	db *badger.DB
 }
@@ -28,8 +31,7 @@ func NewBadgerStore(path string) (*BadgerStore, error) {
 func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error {
 	key := []byte(fmt.Sprintf("pending:%s:%s", peerID, messageID))
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Increased TTL to 72 hours (3 days) for better mesh resilience.
-		e := badger.NewEntry(key, data).WithTTL(72 * time.Hour)
+		e := badger.NewEntry(key, data).WithTTL(DefaultMessageTTL)
 		return txn.SetEntry(e)
 	})
 }
@@ -76,8 +78,7 @@ func (s *BadgerStore) DeletePending(peerID, messageID string) error {
 func (s *BadgerStore) MarkPeerSynced(peerID, messageID string) error {
 	key := []byte(fmt.Sprintf("sync:%s:%s", peerID, messageID))
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Sync records persist for 72h to match the message TTL.
-		e := badger.NewEntry(key, []byte{1}).WithTTL(72 * time.Hour)
+		e := badger.NewEntry(key, []byte{1}).WithTTL(DefaultMessageTTL)
 		return txn.SetEntry(e)
 	})
 }
@@ -102,8 +103,7 @@ func (s *BadgerStore) WasPeerSynced(peerID, messageID string) (bool, error) {
 func (s *BadgerStore) MarkSeen(messageID string) error {
 	key := []byte(fmt.Sprintf("seen:%s", messageID))
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Seen records also have a TTL to prevent infinite growth.
-		e := badger.NewEntry(key, []byte{1}).WithTTL(72 * time.Hour)
+		e := badger.NewEntry(key, []byte{1}).WithTTL(DefaultMessageTTL)
 		return txn.SetEntry(e)
 	})
 }

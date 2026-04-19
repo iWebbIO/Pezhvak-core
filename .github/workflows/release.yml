@@ -1,13 +1,31 @@
 name: Build and Release Pezhvak Core
 
 on:
-  workflow_dispatch: # Allows manual triggering from the GitHub Actions UI
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Version Tag (e.g., v1.0.0)'
+        required: true
+        type: string
+      release_name:
+        description: 'Release Title'
+        required: false
+        type: string
+      is_prerelease:
+        description: 'Mark as a pre-release'
+        required: false
+        type: boolean
+        default: false
   push:
     tags:
-      - 'v*' # Triggers the workflow on version tags (e.g., v1.0.0)
+      - 'v*'
 
 permissions:
   contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-desktop:
@@ -55,13 +73,16 @@ jobs:
         run: go build -o pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }} ./cmd/pezhvak-cli
 
       - name: Upload Desktop Release Assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: ${{ inputs.release_name || inputs.tag_name || github.ref_name }}
+          prerelease: ${{ inputs.is_prerelease || contains(github.ref_name, '-') }}
+          generate_release_notes: true
           files: |
             pezhvak-${{ matrix.os }}-${{ matrix.arch }}.${{ matrix.ext }}
             pezhvak-${{ matrix.os }}-${{ matrix.arch }}.h
             pezhvak-cli-${{ matrix.os }}-${{ matrix.arch }}${{ matrix.bin }}
-
   build-mobile:
     name: Build Mobile Frameworks (gomobile)
     runs-on: macos-latest # macOS runners can build both iOS XCFrameworks and Android AARs
@@ -96,8 +117,12 @@ jobs:
         run: zip -r pezhvak-ios.zip pezhvak.xcframework
 
       - name: Upload Mobile Release Assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ inputs.tag_name || github.ref_name }}
+          name: ${{ inputs.release_name || inputs.tag_name || github.ref_name }}
+          prerelease: ${{ inputs.is_prerelease || contains(github.ref_name, '-') }}
+          generate_release_notes: true
           files: |
             pezhvak.aar
             pezhvak-ios.zip
