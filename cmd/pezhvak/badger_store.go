@@ -125,7 +125,13 @@ func (s *BadgerStore) HasSeen(messageID string) (bool, error) {
 }
 
 func (s *BadgerStore) Wipe() error {
-	return s.db.DropAll()
+	err := s.db.DropAll()
+	if err != nil {
+		return err
+	}
+	// Run a value log GC after dropping to ensure space is reclaimed 
+	// immediately on storage-constrained mobile devices.
+	return s.db.RunValueLogGC(0.5)
 }
 
 func (s *BadgerStore) Close() error {
