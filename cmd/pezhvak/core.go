@@ -53,11 +53,13 @@ func NewPezhvakCore(platform NativePlatform, store MessageStore, privHex, pubHex
 // onMessageAssembled is triggered when a multi-part message is fully reconstructed.
 func (c *PezhvakCore) onMessageAssembled(peerID string, messageID string, payload []byte) {
 	// 1. Deduplication check
-	seen, _ := c.store.HasSeen(messageID)
-	if seen {
+	seen, err := c.store.HasSeen(messageID)
+	if err != nil || seen {
 		return
 	}
-	_ = c.store.MarkSeen(messageID)
+	if err := c.store.MarkSeen(messageID); err != nil {
+		// Log or handle error if needed, but we proceed to attempt decryption
+	}
 
 	var msg pb.PezhvakMessage
 	if err := proto.Unmarshal(payload, &msg); err != nil {
@@ -67,7 +69,11 @@ func (c *PezhvakCore) onMessageAssembled(peerID string, messageID string, payloa
 	myID := hex.EncodeToString(c.pubKey[:])
 	if msg.RecipientId == myID {
 		// Scenario: It's for us. Decrypt and pass to UI.
-		senderPubBytes, _ := hex.DecodeString(msg.SenderId)
+		senderPubBytes, err := hex.DecodeString(msg.SenderId)
+		if err != nil || len(senderPubBytes) != 32 {
+			return
+		}
+
 		var senderPub [32]byte
 		copy(senderPub[:], senderPubBytes)
 

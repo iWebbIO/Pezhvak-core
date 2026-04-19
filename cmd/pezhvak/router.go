@@ -58,7 +58,13 @@ func (r *Router) HandleIncomingPacket(peerID string, raw []byte) error {
 	buf.lastUpdate = time.Now()
 
 	if uint32(len(buf.chunks)) == buf.total {
-		fullPayload := make([]byte, 0)
+		// Pre-calculate size to minimize allocations
+		totalSize := 0
+		for i := uint32(0); i < buf.total; i++ {
+			totalSize += len(buf.chunks[i])
+		}
+
+		fullPayload := make([]byte, 0, totalSize)
 		for i := uint32(0); i < buf.total; i++ {
 			fullPayload = append(fullPayload, buf.chunks[i]...)
 		}
