@@ -47,16 +47,12 @@ func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 			item := it.Item()
 			key := item.Key()
 			// The key is only valid for the transaction, so we must copy it.
-			msgID := string(key[len(prefix):])
-			if err := item.Value(func(v []byte) error {
-				// The value is only valid for the transaction, so we must copy it.
-				valCopy := make([]byte, len(v))
-				copy(valCopy, v)
-				pending[msgID] = valCopy
-				return nil
-			}); err != nil {
+			val, err := item.ValueCopy(nil)
+			if err != nil {
 				return err
 			}
+			msgID := string(key[len(prefix):])
+			pending[msgID] = val
 		}
 		return nil
 	})
@@ -70,27 +66,30 @@ func (s *BadgerStore) DeletePending(peerID, messageID string) error {
 	})
 }
 
-func (s *BadgerStore) HasMessage(messageID string) (bool, error) {
-	found := false
-	err := s.db.View(func(txn *badger.Txn) error {
-		// We use a prefix scan because the message might be stored under 
-		// any peerID prefix (pending:peerID:messageID)
-		it := txn.NewIterator(badger.DefaultIteratorOptions)
-		defer it.Close()
-		prefix := []byte("pending:")
-		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
-			if item := it.Item(); item != nil && containsSuffix(item.Key(), messageID) {
-				found = true
-				return nil
-			}
-		}
-		return nil
+// MarkSeen creates a lightweight record that this message ID has been processed.
+func (s *BadgerStore) MarkSeen(messageID string) error {
+	key := []byte(fmt.Sprintf("seen:%s", messageID))
+	return s.db.Update(func(txn *badger.Txn) error {
+		// Seen records also have a TTL to prevent infinite growth.
+		e := badger.NewEntry(key, []byte{1}).WithTTL(72 * time.Hour)
+		return txn.SetEntry(e)
 	})
-	return found, err
 }
 
-func containsSuffix(key []byte, suffix string) bool {
-	return len(key) >= len(suffix) && string(key[len(key)-len(suffix):]) == suffix
+// HasSeen provides O(1) deduplication check.
+func (s *BadgerStore) HasSeen(messageID string) (bool, error) {
+	found := false
+	err := s.db.View(func(txn *badger.Txn) error {
+		key := []byte(fmt.Sprintf("seen:%s", messageID))
+		_, err := txn.Get(key)
+		if err == nil {
+			found = true
+		} else if err == badger.ErrKeyNotFound {
+			return nil
+		}
+		return err
+	})
+	return found, err
 }
 
 func (s *BadgerStore) Wipe() error {

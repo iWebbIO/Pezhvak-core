@@ -23,8 +23,9 @@ type messageAssembler struct {
 }
 
 const (
-	assemblerTTL      = 60 * time.Second
+	assemblerTTL    = 60 * time.Second
 	cleanupInterval = 5 * time.Minute
+	maxChunks       = 5000 // RELIABILITY: Limit message size (~1MB) to prevent OOM attacks
 )
 
 func NewRouter(onMessage func(peerID string, messageID string, fullPayload []byte)) *Router {
@@ -42,8 +43,8 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 		return err
 	}
 
-	if packet.TotalChunks == 0 || packet.ChunkIndex >= packet.TotalChunks {
-		return errors.New("invalid chunk index or total chunks")
+	if packet.TotalChunks == 0 || packet.TotalChunks > maxChunks || packet.ChunkIndex >= packet.TotalChunks {
+		return errors.New("invalid or excessive chunk parameters")
 	}
 
 	r.mu.Lock()

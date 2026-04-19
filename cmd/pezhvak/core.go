@@ -40,10 +40,11 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 
 	c.router = NewRouter(func(peerID string, messageID string, fullPayload []byte) {
 		// Deduplication: Check if we've already handled this message
-		if exists, _ := c.store.HasMessage(messageID); exists {
+		if exists, _ := c.store.HasSeen(messageID); exists {
 			fmt.Printf("[CORE] Skipping duplicate message: %s\n", messageID)
 			return
 		}
+		_ = c.store.MarkSeen(messageID)
 
 		var msg pb.PezhvakMessage
 		if err := proto.Unmarshal(fullPayload, &msg); err != nil {
@@ -52,20 +53,16 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		}
 
 		myPubKeyHex := hex.EncodeToString(c.pubKey[:])
-
-		// REVOLUTIONARY FEATURE: Mesh Relaying
-		// If the message is NOT for us, act as a carrier/relay.
+		
+		// RELIABILITY: Always relay first to ensure the mesh propagates the data
+		// Mesh Relaying Logic
 		if msg.RecipientId != myPubKeyHex {
 			fmt.Printf("[RELAY] Carrying message %s for recipient %s\n", messageID, msg.RecipientId)
-			// We store it under the RecipientId so SyncPendingMessages can find it 
-			// if we ever encounter the actual recipient.
 			_ = c.store.SaveForLater(msg.RecipientId, messageID, fullPayload)
 			return
 		}
 
 		// Message is for us, attempt decryption
-		// Mark as seen/stored so we don't process it again if re-broadcast
-		_ = c.store.SaveForLater("self", messageID, []byte{1})
 
 		senderPubBytes, err := hex.DecodeString(msg.SenderId)
 		if err != nil || len(senderPubBytes) != 32 {
@@ -81,6 +78,11 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		}
 	})
 	return c, nil
+}
+
+// GetPublicKey returns the node's public ID in hex format.
+func (c *PezhvakCore) GetPublicKey() string {
+	return hex.EncodeToString(c.pubKey[:])
 }
 
 func (c *PezhvakCore) ReceiveFromBLE(peerID string, rawPacket []byte) error {
@@ -100,6 +102,7 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 	for i := uint32(0); i < totalChunks; i++ {
 		start := i * BLE_SAFE_PAYLOAD
 		end := start + BLE_SAFE_PAYLOAD
+		// RELIABILITY: Bounds checking for the final chunk
 		if end > uint32(totalLength) {
 			end = uint32(totalLength)
 		}
