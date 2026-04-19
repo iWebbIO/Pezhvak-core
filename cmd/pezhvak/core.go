@@ -22,7 +22,7 @@ const (
 
 	SizeNormal = 200
 	SizeHigh   = 450
-	SizeMax    = 500 // Maximum effective BLE MTU
+	SizeMax    = 480 // Maximum effective BLE MTU
 
 	DelayNormal = 20 * time.Millisecond
 	DelayHigh   = 10 * time.Millisecond
@@ -43,6 +43,9 @@ type PezhvakCore struct {
 	pubKey   *[32]byte
 	payloadSize  int
 	currentDelay time.Duration
+
+	syncMu       sync.Mutex
+	syncingPeers map[string]bool
 }
 
 func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, publicKeyHex string) (*PezhvakCore, error) {
@@ -59,6 +62,7 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		pubKey:   new([32]byte),
 		payloadSize:  SizeNormal,
 		currentDelay: DelayNormal,
+		syncingPeers: make(map[string]bool),
 	}
 	copy(c.privKey[:], privBytes)
 	copy(c.pubKey[:], pubBytes)
@@ -286,6 +290,20 @@ func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex str
 // SyncPendingMessages should be called by the native UI when a peer (re)connects.
 // It retrieves all offline messages for the peer and attempts to send them.
 func (c *PezhvakCore) SyncPendingMessages(peerID string) error {
+	c.syncMu.Lock()
+	if c.syncingPeers[peerID] {
+		c.syncMu.Unlock()
+		return nil // Already syncing this peer
+	}
+	c.syncingPeers[peerID] = true
+	c.syncMu.Unlock()
+
+	defer func() {
+		c.syncMu.Lock()
+		delete(c.syncingPeers, peerID)
+		c.syncMu.Unlock()
+	}()
+
 	pending, err := c.store.GetPending(peerID)
 	if err != nil {
 		return err
