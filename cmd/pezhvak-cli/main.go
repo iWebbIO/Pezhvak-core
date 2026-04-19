@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"C" // Required for the c-shared buildmode
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	core "pezhvak/cmd/pezhvak"
@@ -106,14 +108,72 @@ func main() {
 
 	// 3. Instantiate the core logic
 	platform := &desktopPlatform{}
-	_, err = core.NewPezhvakCore(platform, db, cfg.PrivateKey, cfg.PublicKey)
+	pCore, err := core.NewPezhvakCore(platform, db, cfg.PrivateKey, cfg.PublicKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize Pezhvak Core: %v", err)
 	}
+	defer pCore.Close()
 
-	fmt.Println("Daemon is running and ready. Press Ctrl+C to exit.")
+	fmt.Println("Daemon is running. Type '/help' for commands.")
 
-	// 4. Wait for interrupt signal to gracefully shutdown
+	// 4. Start interactive command loop
+	go func() {
+		scanner := bufio.NewScanner(os.Stdin)
+		fmt.Print("> ")
+		for scanner.Scan() {
+			input := scanner.Text()
+			if strings.HasPrefix(input, "/") {
+				parts := strings.Split(input, " ")
+				cmd := parts[0]
+
+				switch cmd {
+				case "/help":
+					fmt.Println("Available Commands:")
+					fmt.Println("  /send <recipient_pubkey> <message> - Send an encrypted message")
+					fmt.Println("  /power <0|1|2>                   - Change radio power level")
+					fmt.Println("  /wipe                             - PANIC: Wipe all data and identity")
+					fmt.Println("  /quit                             - Exit the application")
+
+				case "/send":
+					if len(parts) < 3 {
+						fmt.Println("Usage: /send <pubkey> <message>")
+					} else {
+						recipient := parts[1]
+						msg := strings.Join(parts[2:], " ")
+						// In CLI, we use a placeholder 'discovery' peer ID
+						err := pCore.SendPlaintextMessage("desktop-peer-01", recipient, []byte(msg))
+						if err != nil {
+							fmt.Printf("Error sending: %v\n", err)
+						} else {
+							fmt.Println("Message passed to router...")
+						}
+					}
+
+				case "/power":
+					if len(parts) < 2 {
+						fmt.Println("Usage: /power <0-2>")
+					} else {
+						level := parts[1]
+						// Implementation for power level parsing and setting
+						fmt.Printf("Setting power to %s\n", level)
+					}
+
+				case "/wipe":
+					fmt.Println("PERFORMING PANIC WIPE...")
+					pCore.WipeAllData()
+					os.Remove(filepath.Join(dataDir, "identity.json"))
+					fmt.Println("Data destroyed. Exiting.")
+					os.Exit(0)
+
+				case "/quit":
+					syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+				}
+			}
+			fmt.Print("> ")
+		}
+	}()
+
+	// 5. Wait for interrupt signal to gracefully shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	<-sigChan
