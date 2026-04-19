@@ -129,6 +129,11 @@ func (s *BadgerStore) Wipe() error {
 	if err != nil {
 		return err
 	}
+	
+	// Ensure the LSM tree is flattened to reclaim space from the OS immediately.
+	// This is vital for mobile users with limited storage.
+	_ = s.db.Flatten(1)
+
 	// Run a value log GC after dropping to ensure space is reclaimed 
 	// immediately on storage-constrained mobile devices.
 	return s.db.RunValueLogGC(0.5)
