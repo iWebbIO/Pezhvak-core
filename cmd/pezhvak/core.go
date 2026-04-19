@@ -39,6 +39,12 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 	copy(c.pubKey[:], pubBytes)
 
 	c.router = NewRouter(func(peerID string, messageID string, fullPayload []byte) {
+		// Deduplication: Check if we've already handled this message
+		if exists, _ := c.store.HasMessage(messageID); exists {
+			fmt.Printf("[CORE] Skipping duplicate message: %s\n", messageID)
+			return
+		}
+
 		var msg pb.PezhvakMessage
 		if err := proto.Unmarshal(fullPayload, &msg); err != nil {
 			fmt.Println("Failed to unmarshal PezhvakMessage:", err)
@@ -50,12 +56,16 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		// REVOLUTIONARY FEATURE: Mesh Relaying
 		// If the message is NOT for us, act as a carrier/relay.
 		if msg.RecipientId != myPubKeyHex {
-			fmt.Printf("[RELAY] Storing message %s for recipient %s\n", messageID, msg.RecipientId)
+			fmt.Printf("[RELAY] Carrying message %s for recipient %s\n", messageID, msg.RecipientId)
+			// We store it under the RecipientId so SyncPendingMessages can find it 
+			// if we ever encounter the actual recipient.
 			_ = c.store.SaveForLater(msg.RecipientId, messageID, fullPayload)
 			return
 		}
 
 		// Message is for us, attempt decryption
+		// Mark as seen/stored so we don't process it again if re-broadcast
+		_ = c.store.SaveForLater("self", messageID, []byte{1})
 
 		senderPubBytes, err := hex.DecodeString(msg.SenderId)
 		if err != nil || len(senderPubBytes) != 32 {

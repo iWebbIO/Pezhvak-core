@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/dgraph-io/badger/v4"
 )
@@ -27,7 +28,10 @@ func NewBadgerStore(path string) (*BadgerStore, error) {
 func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error {
 	key := []byte(fmt.Sprintf("pending:%s:%s", peerID, messageID))
 	return s.db.Update(func(txn *badger.Txn) error {
-		return txn.Set(key, data)
+		// Set with a 48-hour TTL. In a revolution, messages older than 2 days 
+		// without finding a path are likely stale or the recipient is compromised.
+		e := badger.NewEntry(key, data).WithTTL(48 * time.Hour)
+		return txn.SetEntry(e)
 	})
 }
 
@@ -64,6 +68,29 @@ func (s *BadgerStore) DeletePending(peerID, messageID string) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
+}
+
+func (s *BadgerStore) HasMessage(messageID string) (bool, error) {
+	found := false
+	err := s.db.View(func(txn *badger.Txn) error {
+		// We use a prefix scan because the message might be stored under 
+		// any peerID prefix (pending:peerID:messageID)
+		it := txn.NewIterator(badger.DefaultIteratorOptions)
+		defer it.Close()
+		prefix := []byte("pending:")
+		for it.Seek(prefix); it.ValidForPrefix(prefix); it.Next() {
+			if item := it.Item(); item != nil && containsSuffix(item.Key(), messageID) {
+				found = true
+				return nil
+			}
+		}
+		return nil
+	})
+	return found, err
+}
+
+func containsSuffix(key []byte, suffix string) bool {
+	return len(key) >= len(suffix) && string(key[len(key)-len(suffix):]) == suffix
 }
 
 func (s *BadgerStore) Wipe() error {
