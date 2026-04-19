@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"path/filepath"
 	"strings"
-	"syscall"
 
 	core "pezhvak/cmd/pezhvak"
 )
@@ -116,6 +115,10 @@ func main() {
 
 	fmt.Println("Daemon is running. Type '/help' for commands.")
 
+	// Setup signal handling before the loop so the goroutine can access sigChan
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt)
+
 	// 4. Start interactive command loop
 	go func() {
 		scanner := bufio.NewScanner(os.Stdin)
@@ -166,16 +169,15 @@ func main() {
 					os.Exit(0)
 
 				case "/quit":
-					syscall.Kill(syscall.Getpid(), syscall.SIGINT)
+					// Send interrupt signal internally to trigger graceful shutdown
+					sigChan <- os.Interrupt
 				}
 			}
 			fmt.Print("> ")
 		}
 	}()
 
-	// 5. Wait for interrupt signal to gracefully shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+	// 5. Wait for interrupt signal (SIGINT or internal /quit) to gracefully shutdown
 	<-sigChan
 
 	fmt.Println("\nShutting down gracefully...")
