@@ -15,7 +15,7 @@ While Pezhvak Core provides industry-standard End-to-End Encryption (E2EE) using
 Bluetooth Low Energy (BLE) performance varies wildly across hardware.
 
 *   **Android Fragmentation:** Some budget Android devices have poor BLE stack implementations that may drop connections frequently. Always implement robust error handling in your `SendBLE` implementation.
-*   **iOS Backgrounding:** iOS is very aggressive about suspending Bluetooth activity when an app is in the background. For a "Revolutionary" use case, encourage users to keep the app in the foreground during active data synchronization.
+*   **iOS Backgrounding:** iOS is very aggressive about suspending Bluetooth activity when an app is in the background. For high-priority use cases, encourage users to keep the app in the foreground during active data synchronization.
 
 ## 3. Pre-Deployment Checklist
 
