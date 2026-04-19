@@ -28,9 +28,8 @@ func NewBadgerStore(path string) (*BadgerStore, error) {
 func (s *BadgerStore) SaveForLater(peerID, messageID string, data []byte) error {
 	key := []byte(fmt.Sprintf("pending:%s:%s", peerID, messageID))
 	return s.db.Update(func(txn *badger.Txn) error {
-		// Set with a 48-hour TTL. In a revolution, messages older than 2 days 
-		// without finding a path are likely stale or the recipient is compromised.
-		e := badger.NewEntry(key, data).WithTTL(48 * time.Hour)
+		// Increased TTL to 72 hours (3 days) for better mesh resilience.
+		e := badger.NewEntry(key, data).WithTTL(72 * time.Hour)
 		return txn.SetEntry(e)
 	})
 }
@@ -52,6 +51,13 @@ func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 				return err
 			}
 			msgID := string(key[len(prefix):])
+
+			// Efficiency check: Skip if this specific peer has already successfully received this message.
+			synced, _ := s.WasPeerSynced(peerID, msgID)
+			if synced {
+				continue
+			}
+
 			pending[msgID] = val
 		}
 		return nil
@@ -64,6 +70,32 @@ func (s *BadgerStore) DeletePending(peerID, messageID string) error {
 	return s.db.Update(func(txn *badger.Txn) error {
 		return txn.Delete(key)
 	})
+}
+
+// MarkPeerSynced records that a message was successfully transmitted to a specific peer.
+func (s *BadgerStore) MarkPeerSynced(peerID, messageID string) error {
+	key := []byte(fmt.Sprintf("sync:%s:%s", peerID, messageID))
+	return s.db.Update(func(txn *badger.Txn) error {
+		// Sync records persist for 72h to match the message TTL.
+		e := badger.NewEntry(key, []byte{1}).WithTTL(72 * time.Hour)
+		return txn.SetEntry(e)
+	})
+}
+
+// WasPeerSynced checks if we have already shared this message with the peer.
+func (s *BadgerStore) WasPeerSynced(peerID, messageID string) (bool, error) {
+	found := false
+	err := s.db.View(func(txn *badger.Txn) error {
+		key := []byte(fmt.Sprintf("sync:%s:%s", peerID, messageID))
+		_, err := txn.Get(key)
+		if err == nil {
+			found = true
+		} else if err == badger.ErrKeyNotFound {
+			return nil
+		}
+		return err
+	})
+	return found, err
 }
 
 // MarkSeen creates a lightweight record that this message ID has been processed.

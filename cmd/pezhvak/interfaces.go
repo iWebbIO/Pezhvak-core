@@ -12,6 +12,10 @@ type MessageStore interface {
 	SaveForLater(peerID, messageID string, data []byte) error
 	GetPending(peerID string) (map[string][]byte, error)
 	DeletePending(peerID, messageID string) error
+
+	// Sync Tracking
+	MarkPeerSynced(peerID, messageID string) error
+	WasPeerSynced(peerID, messageID string) (bool, error)
 	
 	MarkSeen(messageID string) error
 	HasSeen(messageID string) (bool, error)
