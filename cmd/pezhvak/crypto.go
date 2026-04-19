@@ -8,6 +8,11 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
+// GenerateIdentity creates a new Curve25519 keypair for the user.
+func GenerateIdentity() (pubKey *[32]byte, privKey *[32]byte, err error) {
+	return box.GenerateKey(rand.Reader)
+}
+
 // EncryptPayload encrypts data using NaCl box (Curve25519 + XSalsa20 + Poly1305).
 func EncryptPayload(privKey *[32]byte, pubKey *[32]byte, data []byte) ([]byte, error) {
 	var nonce [24]byte
