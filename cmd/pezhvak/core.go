@@ -1,10 +1,12 @@
 package core
 
 import (
+	"crypto/sha256"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"pezhvak/internal/pb"
@@ -14,10 +16,15 @@ import (
 const (
 	DefaultPayloadSize = 200
 	BoostPayloadSize   = 450 // Increased size for high-performance throughput
+	maxRetries         = 3
+	retryDelay         = 100 * time.Millisecond
+	interChunkDelay    = 20 * time.Millisecond
+	maxMessageAge      = 48 * time.Hour
 )
 
 // PezhvakCore is the main struct exported to gomobile.
 type PezhvakCore struct {
+	mu       sync.RWMutex
 	platform NativePlatform
 	store    MessageStore
 	router   *Router
@@ -49,11 +56,20 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 			fmt.Printf("[CORE] Skipping duplicate message: %s\n", messageID)
 			return
 		}
-		_ = c.store.MarkSeen(messageID)
+		if err := c.store.MarkSeen(messageID); err != nil {
+			fmt.Printf("[CORE] Error marking message seen: %v\n", err)
+			return
+		}
 
 		var msg pb.PezhvakMessage
 		if err := proto.Unmarshal(fullPayload, &msg); err != nil {
 			fmt.Println("Failed to unmarshal PezhvakMessage:", err)
+			return
+		}
+
+		// MATURITY: Reject messages that are older than the mesh TTL (e.g., 48h)
+		if time.Since(time.Unix(msg.Timestamp, 0)) > maxMessageAge {
+			fmt.Printf("[CORE] Dropping stale message %s from %s\n", messageID, msg.SenderId)
 			return
 		}
 
@@ -93,6 +109,9 @@ func (c *PezhvakCore) GetPublicKey() string {
 // SetRadioBoostMode toggles between standard and high-power radio usage.
 // Enabling boost increases range and speed but significantly increases battery drain.
 func (c *PezhvakCore) SetRadioBoostMode(enabled bool) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if enabled {
 		c.payloadSize = BoostPayloadSize
 		fmt.Println("[CORE] Radio Boost Mode ENABLED (High Power)")
@@ -107,11 +126,15 @@ func (c *PezhvakCore) SetRadioBoostMode(enabled bool) error {
 
 // IsRadioBoostModeEnabled allows the UI to check the current power state.
 func (c *PezhvakCore) IsRadioBoostModeEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.payloadSize == BoostPayloadSize
 }
 
 // GetCurrentPayloadSize returns the current number of bytes per BLE packet.
 func (c *PezhvakCore) GetCurrentPayloadSize() int {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.payloadSize
 }
 
@@ -127,11 +150,16 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 	if totalLength == 0 {
 		return nil
 	}
-	totalChunks := uint32((totalLength + c.payloadSize - 1) / c.payloadSize)
+
+	c.mu.RLock()
+	chunkSize := c.payloadSize
+	c.mu.RUnlock()
+
+	totalChunks := uint32((totalLength + chunkSize - 1) / chunkSize)
 
 	for i := uint32(0); i < totalChunks; i++ {
-		start := i * uint32(c.payloadSize)
-		end := start + uint32(c.payloadSize)
+		start := i * uint32(chunkSize)
+		end := start + uint32(chunkSize)
 		// RELIABILITY: Bounds checking for the final chunk
 		if end > uint32(totalLength) {
 			end = uint32(totalLength)
@@ -149,10 +177,24 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 			return err
 		}
 
-		if err = c.platform.SendBLE(peerID, wireBytes); err != nil {
-			_ = c.store.SaveForLater(peerID, messageID, fullPayload)
-			return err
+		// RELIABILITY: Retry mechanism for transient BLE failures
+		var lastErr error
+		for attempt := 0; attempt < maxRetries; attempt++ {
+			lastErr = c.platform.SendBLE(peerID, wireBytes)
+			if lastErr == nil {
+				break
+			}
+			// Exponential-ish backoff: 100ms, 200ms, 300ms
+			time.Sleep(retryDelay * time.Duration(attempt+1))
 		}
+
+		if lastErr != nil {
+			_ = c.store.SaveForLater(peerID, messageID, fullPayload)
+			return lastErr
+		}
+
+		// PERFORMANCE: Tiny pause to allow the BLE hardware buffer to clear
+		time.Sleep(interChunkDelay)
 	}
 	return nil
 }
@@ -193,7 +235,11 @@ func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex str
 	if _, err := rand.Read(randBytes); err != nil {
 		return err
 	}
-	msgID := fmt.Sprintf("%d-%s-%x", msg.Timestamp, msg.SenderId[:8], randBytes)
+	
+	// MATURITY: Hash the metadata to prevent third-party tracking of Message IDs
+	rawID := fmt.Sprintf("%d-%s-%x", msg.Timestamp, msg.SenderId, randBytes)
+	msgID := hex.EncodeToString(sha256.New().Sum([]byte(rawID)))[:16]
+
 	return c.FragmentAndSend(peerID, msgID, wireBytes)
 }
 
