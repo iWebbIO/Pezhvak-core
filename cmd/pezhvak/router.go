@@ -14,6 +14,7 @@ type Router struct {
 	mu               sync.Mutex
 	pendingAssembler map[string]*messageAssembler
 	onMessage        func(peerID string, messageID string, fullPayload []byte)
+	stopChan         chan struct{}
 }
 
 type messageAssembler struct {
@@ -32,9 +33,14 @@ func NewRouter(onMessage func(peerID string, messageID string, fullPayload []byt
 	r := &Router{
 		pendingAssembler: make(map[string]*messageAssembler),
 		onMessage:        onMessage,
+		stopChan:         make(chan struct{}),
 	}
 	go r.cleanupStaleAssemblers()
 	return r
+}
+
+func (r *Router) Stop() {
+	close(r.stopChan)
 }
 
 func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
@@ -82,13 +88,18 @@ func (r *Router) cleanupStaleAssemblers() {
 	ticker := time.NewTicker(cleanupInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		r.mu.Lock()
-		for id, asm := range r.pendingAssembler {
-			if time.Since(asm.lastUpdated) > assemblerTTL {
-				delete(r.pendingAssembler, id)
+	for {
+		select {
+		case <-ticker.C:
+			r.mu.Lock()
+			for id, asm := range r.pendingAssembler {
+				if time.Since(asm.lastUpdated) > assemblerTTL {
+					delete(r.pendingAssembler, id)
+				}
 			}
+			r.mu.Unlock()
+		case <-r.stopChan:
+			return
 		}
-		r.mu.Unlock()
 	}
 }

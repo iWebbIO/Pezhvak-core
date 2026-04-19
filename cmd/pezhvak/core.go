@@ -92,7 +92,9 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		// Mesh Relaying Logic
 		if msg.RecipientId != myPubKeyHex {
 			fmt.Printf("[RELAY] Carrying message %s for recipient %s\n", messageID, msg.RecipientId)
-			_ = c.store.SaveForLater(msg.RecipientId, messageID, fullPayload)
+			if err := c.store.SaveForLater(msg.RecipientId, messageID, fullPayload); err != nil {
+				fmt.Printf("[RELAY] Error saving message for later: %v\n", err)
+			}
 			return
 		}
 
@@ -116,6 +118,12 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		c.platform.OnMessageReceived(msg.SenderId, plaintext)
 	})
 	return c, nil
+}
+
+// Close shuts down the core engine and its background processes.
+func (c *PezhvakCore) Close() error {
+	c.router.Stop()
+	return c.store.Close()
 }
 
 // GetPublicKey returns the node's public ID in hex format.
@@ -213,7 +221,9 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 		}
 
 		if lastErr != nil {
-			_ = c.store.SaveForLater(peerID, messageID, fullPayload)
+			if err := c.store.SaveForLater(peerID, messageID, fullPayload); err != nil {
+				fmt.Printf("[CORE] Critical: Failed to save message for later after BLE failure: %v\n", err)
+			}
 			return lastErr
 		}
 
@@ -238,6 +248,11 @@ func (c *PezhvakCore) SendPlaintextMessage(peerID string, recipientPubKeyHex str
 
 	var recipientPub [32]byte
 	copy(recipientPub[:], recipientPubBytes)
+
+	// Prevent sending to self
+	if recipientPubKeyHex == hex.EncodeToString(c.pubKey[:]) {
+		return errors.New("cannot send message to self")
+	}
 
 	encrypted, err := EncryptPayload(c.privKey, &recipientPub, plaintext)
 	if err != nil {
