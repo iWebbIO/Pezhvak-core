@@ -28,6 +28,11 @@ func (p *desktopPlatform) SendBLE(peerID string, data []byte) error {
 	return nil
 }
 
+func (p *desktopPlatform) SetRadioPowerMode(boost bool) error {
+	fmt.Printf("[RADIO] Power mode requested: boost=%v\n", boost)
+	return nil
+}
+
 func (p *desktopPlatform) OnMessageReceived(senderID string, plaintext []byte) {
 	fmt.Printf("\n[MESSAGE RX] From %s: %s\n", senderID, string(plaintext))
 }

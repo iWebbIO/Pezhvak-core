@@ -11,7 +11,10 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-const BLE_SAFE_PAYLOAD = 200
+const (
+	DefaultPayloadSize = 200
+	BoostPayloadSize   = 450 // Increased size for high-performance throughput
+)
 
 // PezhvakCore is the main struct exported to gomobile.
 type PezhvakCore struct {
@@ -20,6 +23,7 @@ type PezhvakCore struct {
 	router   *Router
 	privKey  *[32]byte
 	pubKey   *[32]byte
+	payloadSize int
 }
 
 func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, publicKeyHex string) (*PezhvakCore, error) {
@@ -34,6 +38,7 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		store:    db,
 		privKey:  new([32]byte),
 		pubKey:   new([32]byte),
+		payloadSize: DefaultPayloadSize,
 	}
 	copy(c.privKey[:], privBytes)
 	copy(c.pubKey[:], pubBytes)
@@ -85,6 +90,31 @@ func (c *PezhvakCore) GetPublicKey() string {
 	return hex.EncodeToString(c.pubKey[:])
 }
 
+// SetRadioBoostMode toggles between standard and high-power radio usage.
+// Enabling boost increases range and speed but significantly increases battery drain.
+func (c *PezhvakCore) SetRadioBoostMode(enabled bool) error {
+	if enabled {
+		c.payloadSize = BoostPayloadSize
+		fmt.Println("[CORE] Radio Boost Mode ENABLED (High Power)")
+	} else {
+		c.payloadSize = DefaultPayloadSize
+		fmt.Println("[CORE] Radio Boost Mode DISABLED (Power Saving)")
+	}
+	
+	// Signal the native platform to adjust TX power and Bluetooth PHY settings
+	return c.platform.SetRadioPowerMode(enabled)
+}
+
+// IsRadioBoostModeEnabled allows the UI to check the current power state.
+func (c *PezhvakCore) IsRadioBoostModeEnabled() bool {
+	return c.payloadSize == BoostPayloadSize
+}
+
+// GetCurrentPayloadSize returns the current number of bytes per BLE packet.
+func (c *PezhvakCore) GetCurrentPayloadSize() int {
+	return c.payloadSize
+}
+
 func (c *PezhvakCore) ReceiveFromBLE(peerID string, rawPacket []byte) error {
 	if len(rawPacket) == 0 {
 		return nil
@@ -97,11 +127,11 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 	if totalLength == 0 {
 		return nil
 	}
-	totalChunks := uint32((totalLength + BLE_SAFE_PAYLOAD - 1) / BLE_SAFE_PAYLOAD)
+	totalChunks := uint32((totalLength + c.payloadSize - 1) / c.payloadSize)
 
 	for i := uint32(0); i < totalChunks; i++ {
-		start := i * BLE_SAFE_PAYLOAD
-		end := start + BLE_SAFE_PAYLOAD
+		start := i * uint32(c.payloadSize)
+		end := start + uint32(c.payloadSize)
 		// RELIABILITY: Bounds checking for the final chunk
 		if end > uint32(totalLength) {
 			end = uint32(totalLength)
