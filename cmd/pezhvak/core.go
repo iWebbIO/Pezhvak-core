@@ -38,12 +38,24 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 	copy(c.privKey[:], privBytes)
 	copy(c.pubKey[:], pubBytes)
 
-	c.router = NewRouter(func(peerID string, fullPayload []byte) {
+	c.router = NewRouter(func(peerID string, messageID string, fullPayload []byte) {
 		var msg pb.PezhvakMessage
 		if err := proto.Unmarshal(fullPayload, &msg); err != nil {
 			fmt.Println("Failed to unmarshal PezhvakMessage:", err)
 			return
 		}
+
+		myPubKeyHex := hex.EncodeToString(c.pubKey[:])
+
+		// REVOLUTIONARY FEATURE: Mesh Relaying
+		// If the message is NOT for us, act as a carrier/relay.
+		if msg.RecipientId != myPubKeyHex {
+			fmt.Printf("[RELAY] Storing message %s for recipient %s\n", messageID, msg.RecipientId)
+			_ = c.store.SaveForLater(msg.RecipientId, messageID, fullPayload)
+			return
+		}
+
+		// Message is for us, attempt decryption
 
 		senderPubBytes, err := hex.DecodeString(msg.SenderId)
 		if err != nil || len(senderPubBytes) != 32 {
@@ -100,6 +112,11 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 		}
 	}
 	return nil
+}
+
+// WipeAllData is the "Panic Button" to clear all local mesh data.
+func (c *PezhvakCore) WipeAllData() error {
+	return c.store.Wipe()
 }
 
 // SendPlaintextMessage is called by the native Android/iOS UI to send a message to a peer.

@@ -5,5 +5,6 @@ type MessageStore interface {
 	SaveForLater(peerID, messageID string, data []byte) error
 	GetPending(peerID string) (map[string][]byte, error)
 	DeletePending(peerID, messageID string) error
+	Wipe() error
 	Close() error
 }

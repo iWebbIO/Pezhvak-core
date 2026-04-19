@@ -13,7 +13,7 @@ import (
 type Router struct {
 	mu               sync.Mutex
 	pendingAssembler map[string]*messageAssembler
-	onMessage        func(peerID string, fullPayload []byte)
+	onMessage        func(peerID string, messageID string, fullPayload []byte)
 }
 
 type messageAssembler struct {
@@ -27,7 +27,7 @@ const (
 	cleanupInterval = 5 * time.Minute
 )
 
-func NewRouter(onMessage func(peerID string, fullPayload []byte)) *Router {
+func NewRouter(onMessage func(peerID string, messageID string, fullPayload []byte)) *Router {
 	r := &Router{
 		pendingAssembler: make(map[string]*messageAssembler),
 		onMessage:        onMessage,
@@ -71,7 +71,7 @@ func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
 	r.mu.Unlock() // Unlock before triggering FFI callbacks to prevent deadlocks
 
 	if completePayload != nil && r.onMessage != nil {
-		r.onMessage(peerID, completePayload)
+		r.onMessage(peerID, packet.MessageId, completePayload)
 	}
 
 	return nil
