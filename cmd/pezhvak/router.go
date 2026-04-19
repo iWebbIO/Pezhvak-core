@@ -1,7 +1,7 @@
 package core
 
 import (
-	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -9,97 +9,94 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Router handles reassembly of incoming fragmented packets.
+type messageBuffer struct {
+	chunks     map[uint32][]byte
+	total      uint32
+	lastUpdate time.Time
+}
+
 type Router struct {
-	mu               sync.Mutex
-	pendingAssembler map[string]*messageAssembler
-	onMessage        func(peerID string, messageID string, fullPayload []byte)
-	stopChan         chan struct{}
+	mu         sync.Mutex
+	assembler  map[string]*messageBuffer
+	onComplete func(peerID string, messageID string, payload []byte)
+	stopChan   chan struct{}
 }
 
-type messageAssembler struct {
-	chunks      map[uint32][]byte
-	totalChunks uint32
-	lastUpdated time.Time
-}
-
-const (
-	assemblerTTL    = 60 * time.Second
-	cleanupInterval = 5 * time.Minute
-	maxChunks       = 5000 // RELIABILITY: Limit message size (~1MB) to prevent OOM attacks
-)
-
-func NewRouter(onMessage func(peerID string, messageID string, fullPayload []byte)) *Router {
+func NewRouter(callback func(string, string, []byte)) *Router {
 	r := &Router{
-		pendingAssembler: make(map[string]*messageAssembler),
-		onMessage:        onMessage,
-		stopChan:         make(chan struct{}),
+		assembler:  make(map[string]*messageBuffer),
+		onComplete: callback,
+		stopChan:   make(chan struct{}),
 	}
-	go r.cleanupStaleAssemblers()
+	go r.cleanupLoop()
 	return r
 }
 
-func (r *Router) Stop() {
-	close(r.stopChan)
-}
-
-func (r *Router) HandleIncomingPacket(peerID string, rawPacket []byte) error {
+func (r *Router) HandleIncomingPacket(peerID string, raw []byte) error {
 	var packet pb.BLEPacket
-	if err := proto.Unmarshal(rawPacket, &packet); err != nil {
+	if err := proto.Unmarshal(raw, &packet); err != nil {
 		return err
 	}
 
-	if packet.TotalChunks == 0 || packet.TotalChunks > maxChunks || packet.ChunkIndex >= packet.TotalChunks {
-		return errors.New("invalid or excessive chunk parameters")
-	}
-
 	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	assembler, exists := r.pendingAssembler[packet.MessageId]
+	buf, exists := r.assembler[packet.MessageId]
 	if !exists {
-		assembler = &messageAssembler{
-			chunks:      make(map[uint32][]byte),
-			totalChunks: packet.TotalChunks,
+		// Limit reassembly buffer to 5000 chunks (~1MB) to prevent OOM
+		if packet.TotalChunks > 5000 {
+			return fmt.Errorf("message too large: %d chunks", packet.TotalChunks)
 		}
-		r.pendingAssembler[packet.MessageId] = assembler
+		buf = &messageBuffer{
+			chunks: make(map[uint32][]byte),
+			total:  packet.TotalChunks,
+		}
+		r.assembler[packet.MessageId] = buf
 	}
 
-	assembler.lastUpdated = time.Now()
-	assembler.chunks[packet.ChunkIndex] = packet.PayloadChunk
+	buf.chunks[packet.ChunkIndex] = packet.PayloadChunk
+	buf.lastUpdate = time.Now()
 
-	var completePayload []byte
-	if uint32(len(assembler.chunks)) == assembler.totalChunks {
-		completePayload = make([]byte, 0)
-		for i := uint32(0); i < assembler.totalChunks; i++ {
-			completePayload = append(completePayload, assembler.chunks[i]...)
+	if uint32(len(buf.chunks)) == buf.total {
+		fullPayload := make([]byte, 0)
+		for i := uint32(0); i < buf.total; i++ {
+			fullPayload = append(fullPayload, buf.chunks[i]...)
 		}
-		delete(r.pendingAssembler, packet.MessageId)
-	}
-	r.mu.Unlock() // Unlock before triggering FFI callbacks to prevent deadlocks
-
-	if completePayload != nil && r.onMessage != nil {
-		r.onMessage(peerID, packet.MessageId, completePayload)
+		delete(r.assembler, packet.MessageId)
+		go r.onComplete(peerID, packet.MessageId, fullPayload)
 	}
 
 	return nil
 }
 
-func (r *Router) cleanupStaleAssemblers() {
-	ticker := time.NewTicker(cleanupInterval)
+func (r *Router) cleanupLoop() {
+	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
 			r.mu.Lock()
-			for id, asm := range r.pendingAssembler {
-				if time.Since(asm.lastUpdated) > assemblerTTL {
-					delete(r.pendingAssembler, id)
+			now := time.Now()
+			for id, buf := range r.assembler {
+				// 60 second timeout for partial messages
+				if now.Sub(buf.lastUpdate) > 60*time.Second {
+					delete(r.assembler, id)
 				}
 			}
 			r.mu.Unlock()
 		case <-r.stopChan:
 			return
 		}
+	}
+}
+
+func (r *Router) Stop() {
+	close(r.stopChan)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Clear memory on shutdown
+	for k := range r.assembler {
+		delete(r.assembler, k)
 	}
 }

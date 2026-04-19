@@ -2,52 +2,38 @@ package core
 
 import (
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"io"
 
 	"golang.org/x/crypto/nacl/box"
 )
 
-// GenerateIdentity creates a new public/private keypair for a peer.
-func GenerateIdentity() (publicKey, privateKey *[32]byte, err error) {
-	return box.GenerateKey(rand.Reader)
-}
-
-// GenerateIdentityHex creates a keypair and returns them as hex strings (Gomobile compatible).
-func GenerateIdentityHex() (string, string, error) {
-	pub, priv, err := GenerateIdentity()
-	if err != nil {
-		return "", "", err
-	}
-	return hex.EncodeToString(pub[:]), hex.EncodeToString(priv[:]), nil
-}
-
-// EncryptPayload encrypts a message using Curve25519, XSalsa20, and Poly1305.
-func EncryptPayload(senderPrivKey, recipientPubKey *[32]byte, plaintext []byte) ([]byte, error) {
+// EncryptPayload encrypts data using NaCl box (Curve25519 + XSalsa20 + Poly1305).
+func EncryptPayload(privKey *[32]byte, pubKey *[32]byte, data []byte) ([]byte, error) {
 	var nonce [24]byte
 	if _, err := io.ReadFull(rand.Reader, nonce[:]); err != nil {
 		return nil, err
 	}
 
-	// Seal appends the encrypted payload to the nonce
-	encrypted := box.Seal(nonce[:], plaintext, &nonce, recipientPubKey, senderPrivKey)
-	return encrypted, nil
+	// box.Seal appends the encrypted data to the nonce.
+	// The resulting slice is [nonce][ciphertext]
+	return box.Seal(nonce[:], data, &nonce, pubKey, privKey), nil
 }
 
-// DecryptPayload verifies and decrypts a received message.
-func DecryptPayload(recipientPrivKey, senderPubKey *[32]byte, ciphertext []byte) ([]byte, error) {
-	if len(ciphertext) < 24 {
+// DecryptPayload decrypts data encrypted via EncryptPayload.
+func DecryptPayload(privKey *[32]byte, pubKey *[32]byte, data []byte) ([]byte, error) {
+	if len(data) < 24 {
 		return nil, errors.New("ciphertext too short")
 	}
 
 	var nonce [24]byte
-	copy(nonce[:], ciphertext[:24])
+	copy(nonce[:], data[:24])
+	ciphertext := data[24:]
 
-	decrypted, ok := box.Open(nil, ciphertext[24:], &nonce, senderPubKey, recipientPrivKey)
+	plaintext, ok := box.Open(nil, ciphertext, &nonce, pubKey, privKey)
 	if !ok {
-		return nil, errors.New("decryption failed or message forged")
+		return nil, errors.New("decryption failed (invalid key or tampered data)")
 	}
 
-	return decrypted, nil
+	return plaintext, nil
 }
