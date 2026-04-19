@@ -14,12 +14,21 @@ import (
 )
 
 const (
-	DefaultPayloadSize = 200
-	BoostPayloadSize   = 450 // Increased size for high-performance throughput
-	maxRetries         = 3
-	retryDelay         = 100 * time.Millisecond
-	interChunkDelay    = 20 * time.Millisecond
-	maxMessageAge      = 48 * time.Hour
+	PowerLevelNormal = 0
+	PowerLevelHigh   = 1
+	PowerLevelMax    = 2
+
+	SizeNormal = 200
+	SizeHigh   = 450
+	SizeMax    = 500 // Maximum effective BLE MTU
+
+	DelayNormal = 20 * time.Millisecond
+	DelayHigh   = 10 * time.Millisecond
+	DelayMax    = 0 // No delay, full throttle
+
+	maxRetries    = 3
+	retryDelay    = 100 * time.Millisecond
+	maxMessageAge = 48 * time.Hour
 )
 
 // PezhvakCore is the main struct exported to gomobile.
@@ -30,7 +39,8 @@ type PezhvakCore struct {
 	router   *Router
 	privKey  *[32]byte
 	pubKey   *[32]byte
-	payloadSize int
+	payloadSize  int
+	currentDelay time.Duration
 }
 
 func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, publicKeyHex string) (*PezhvakCore, error) {
@@ -45,7 +55,8 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		store:    db,
 		privKey:  new([32]byte),
 		pubKey:   new([32]byte),
-		payloadSize: DefaultPayloadSize,
+		payloadSize:  SizeNormal,
+		currentDelay: DelayNormal,
 	}
 	copy(c.privKey[:], privBytes)
 	copy(c.pubKey[:], pubBytes)
@@ -106,29 +117,35 @@ func (c *PezhvakCore) GetPublicKey() string {
 	return hex.EncodeToString(c.pubKey[:])
 }
 
-// SetRadioBoostMode toggles between standard and high-power radio usage.
-// Enabling boost increases range and speed but significantly increases battery drain.
-func (c *PezhvakCore) SetRadioBoostMode(enabled bool) error {
+// SetRadioPowerLevel sets the performance profile of the radio.
+// 0 = Normal, 1 = High, 2 = Max.
+func (c *PezhvakCore) SetRadioPowerLevel(level int) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	if enabled {
-		c.payloadSize = BoostPayloadSize
-		fmt.Println("[CORE] Radio Boost Mode ENABLED (High Power)")
-	} else {
-		c.payloadSize = DefaultPayloadSize
-		fmt.Println("[CORE] Radio Boost Mode DISABLED (Power Saving)")
+	switch level {
+	case PowerLevelMax:
+		c.payloadSize = SizeMax
+		c.currentDelay = DelayMax
+		fmt.Println("[CORE] Power Level: MAX (Full Throttle)")
+	case PowerLevelHigh:
+		c.payloadSize = SizeHigh
+		c.currentDelay = DelayHigh
+		fmt.Println("[CORE] Power Level: HIGH (High Performance)")
+	default:
+		c.payloadSize = SizeNormal
+		c.currentDelay = DelayNormal
+		fmt.Println("[CORE] Power Level: NORMAL (Battery Optimized)")
 	}
-	
-	// Signal the native platform to adjust TX power and Bluetooth PHY settings
-	return c.platform.SetRadioPowerMode(enabled)
+
+	return c.platform.SetRadioPowerLevel(level)
 }
 
-// IsRadioBoostModeEnabled allows the UI to check the current power state.
-func (c *PezhvakCore) IsRadioBoostModeEnabled() bool {
+// IsHighPowerEnabled allows the UI to check if the node is in an elevated power state.
+func (c *PezhvakCore) IsHighPowerEnabled() bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	return c.payloadSize == BoostPayloadSize
+	return c.payloadSize >= SizeHigh
 }
 
 // GetCurrentPayloadSize returns the current number of bytes per BLE packet.
@@ -153,6 +170,7 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 
 	c.mu.RLock()
 	chunkSize := c.payloadSize
+	chunkDelay := c.currentDelay
 	c.mu.RUnlock()
 
 	totalChunks := uint32((totalLength + chunkSize - 1) / chunkSize)
@@ -193,8 +211,9 @@ func (c *PezhvakCore) FragmentAndSend(peerID string, messageID string, fullPaylo
 			return lastErr
 		}
 
-		// PERFORMANCE: Tiny pause to allow the BLE hardware buffer to clear
-		time.Sleep(interChunkDelay)
+		if chunkDelay > 0 {
+			time.Sleep(chunkDelay)
+		}
 	}
 	return nil
 }
