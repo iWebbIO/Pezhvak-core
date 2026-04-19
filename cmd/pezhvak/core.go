@@ -175,6 +175,7 @@ func (c *PezhvakCore) getInterPacketDelay() time.Duration {
 	case 1: return 10 * time.Millisecond
 	case 2: return 0
 	default: return 20 * time.Millisecond
+	}
 }
 
 func (c *PezhvakCore) WipeAllData() error {

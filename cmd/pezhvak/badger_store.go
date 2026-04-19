@@ -52,9 +52,9 @@ func (s *BadgerStore) GetPending(peerID string) (map[string][]byte, error) {
 			}
 			msgID := string(key[len(prefix):])
 
-			// Efficiency check: Skip if this specific peer has already successfully received this message.
-			synced, _ := s.WasPeerSynced(peerID, msgID)
-			if synced {
+			// Optimized efficiency check: Use the current transaction to check sync status
+			syncKey := []byte(fmt.Sprintf("sync:%s:%s", peerID, msgID))
+			if _, err := txn.Get(syncKey); err == nil {
 				continue
 			}
 
