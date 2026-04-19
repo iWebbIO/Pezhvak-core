@@ -7,6 +7,8 @@ Pezhvak Core is the decentralized mesh networking and cryptographic engine for t
 *   **Bluetooth Low Energy (BLE) Optimized:** Automatically fragments and reassembles large messages into BLE-safe packet chunks (<= 200 bytes).
 *   **Store-and-Forward (Mesh Persistence):** Uses BadgerDB to temporarily queue messages for offline peers and syncs them once they reconnect.
 *   **End-to-End Encryption:** Uses NaCl `box` (Curve25519, XSalsa20, and Poly1305) for authenticated public-key encryption. Intermediate mesh nodes cannot read your payloads.
+*   **Adaptive Power Profiles:** Supports `Normal`, `High`, and `Max` radio modes to balance battery life against mesh throughput and range.
+*   **Panic Wipe:** Instant local data destruction capability for high-risk environments.
 *   **Cross-Platform Integration:** Exposes a clean `NativePlatform` interface so native Android (Kotlin), iOS (Swift), and Desktop clients can easily plug into their local Bluetooth hardware.
 
 ## Project Structure

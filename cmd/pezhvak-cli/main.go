@@ -28,8 +28,8 @@ func (p *desktopPlatform) SendBLE(peerID string, data []byte) error {
 	return nil
 }
 
-func (p *desktopPlatform) SetRadioPowerMode(boost bool) error {
-	fmt.Printf("[RADIO] Power mode requested: boost=%v\n", boost)
+func (p *desktopPlatform) SetRadioPowerLevel(level int) error {
+	fmt.Printf("[RADIO] Power level adjusted to: %d\n", level)
 	return nil
 }
 

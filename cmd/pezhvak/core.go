@@ -14,6 +14,8 @@ import (
 )
 
 const (
+	Version = "1.0.0"
+
 	PowerLevelNormal = 0
 	PowerLevelHigh   = 1
 	PowerLevelMax    = 2
@@ -105,9 +107,13 @@ func NewPezhvakCore(platform NativePlatform, db MessageStore, privateKeyHex, pub
 		copy(senderPub[:], senderPubBytes)
 
 		plaintext, err := DecryptPayload(c.privKey, &senderPub, msg.EncryptedData)
-		if err == nil {
-			c.platform.OnMessageReceived(msg.SenderId, plaintext)
+		if err != nil {
+			fmt.Printf("[CORE] Failed to decrypt message %s: %v\n", messageID, err)
+			return
 		}
+
+		fmt.Printf("[CORE] Successfully received message %s from %s\n", messageID, msg.SenderId)
+		c.platform.OnMessageReceived(msg.SenderId, plaintext)
 	})
 	return c, nil
 }
